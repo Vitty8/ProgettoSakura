@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: sakura-festival-bot
+    env: python
+    region: frankfurt
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: TOKEN
+        fromService: RENDER_SECRET
+      - key: DATABASE_URL
+        fromService: RENDER_SECRET
+      - key: FIREBASE_CREDENTIALS_PATH
+        fromService: RENDER_SECRET
+      - key: CLOUDINARY_CLOUD_NAME
+        fromService: RENDER_SECRET
+      - key: CLOUDINARY_API_KEY
+        fromService: RENDER_SECRET
+      - key: CLOUDINARY_API_SECRET
+        fromService: RENDER_SECRET
+      - key: PASSWORD_POPOLARE
+        fromService: RENDER_SECRET
+      - key: PASSWORD_TECNICA
+        fromService: RENDER_SECRET
+      - key: PASSWORD_OWNER
+        fromService: RENDER_SECRET
