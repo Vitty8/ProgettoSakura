@@ -272,12 +272,15 @@ async def send_owner_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
 
 async def owner_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Gestisce i bottoni del proprietario nel pannello votazioni."""
     query = update.callback_query
     await query.answer()
     artist_key = query.data
 
     if artist_key == "stop_voting":
         await stop_voting_handler(update, context)
+        # Modifica il messaggio per mostrare che le votazioni sono chiuse
+        await query.edit_message_text("*Votazioni interrotte e risultati calcolati\\.*", parse_mode=ParseMode.MARKDOWN_V2)
         return MAIN_MENU
 
     artists = context.bot_data.get("artists", {})
@@ -287,7 +290,7 @@ async def owner_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
     artist = artists[artist_key]
     await query.message.reply_text(
-        f"*🔜 Cominciano le votazioni per {artist['nome']}*",
+        f"*▶️ Votazioni aperte per {escape_markdown(artist['nome'], version=2)}\\!*",
         parse_mode=ParseMode.MARKDOWN_V2
     )
     context.bot_data["current_selected_artist"] = artist_key
@@ -298,34 +301,24 @@ async def owner_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         f"*Canzone:* {escape_markdown(artist['canzone'], version=2)}"
     )
     
-    judges = set()
-    judges.update(context.bot_data.get("judges_popolare", set()))
-    judges.update(context.bot_data.get("judges_tecnica", set()))
+    judges = context.bot_data.get("judges_popolare", set()) | context.bot_data.get("judges_tecnica", set())
     judge_types = context.bot_data.get("judge_types", {})
 
     for judge_chat_id in judges:
+        prompt = "\n\n_🔽 Inserisci il tuo voto (1-10) per questo artista\\:_"
+        if judge_types.get(judge_chat_id) == "tecnica":
+            context.user_data.setdefault(judge_chat_id, {})["ambito_index"] = 0
+            prompt = f"\n\n_🔽 Esprimi il tuo voto (1-10) per la categoria *{TECHNICAL_AMBITI[0]}*\\._"
+
         try:
-            prompt = "\n\n_🔽 Inserisci il tuo voto per questo artista\\:_"
-            if judge_types.get(judge_chat_id) == "tecnica":
-                prompt = f"\n\n_🔽 Esprimi il tuo voto per la categoria *{TECHNICAL_AMBITI[0]}*\\._"
-
             if artist.get('foto'):
-                await context.bot.send_photo(
-                    chat_id=judge_chat_id,
-                    photo=artist['foto'],
-                    caption=response_text + prompt,
-                    parse_mode=ParseMode.MARKDOWN_V2
-                )
+                await context.bot.send_photo(chat_id=judge_chat_id, photo=artist['foto'], caption=response_text + prompt, parse_mode=ParseMode.MARKDOWN_V2)
             else:
-                await context.bot.send_message(
-                    chat_id=judge_chat_id,
-                    text=response_text + prompt,
-                    parse_mode=ParseMode.MARKDOWN_V2
-                )
+                await context.bot.send_message(chat_id=judge_chat_id, text=response_text + prompt, parse_mode=ParseMode.MARKDOWN_V2)
         except Exception as e:
-            logger.error(f"Errore nell'invio del profilo all'utente {judge_chat_id}: {e}")
+            logger.error(f"Errore invio profilo al giudice {judge_chat_id}: {e}")
 
-    return VOTE # Remain in VOTE state to receive votes
+    return MAIN_MENU
 
 async def vote_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if "current_selected_artist" not in context.bot_data:
@@ -985,7 +978,7 @@ async def on_startup(aio_app: web.Application):
         per_chat=True,
     )
 
-    # registra handler - correggi il comando 'set'
+    bot_app.add_handler(CommandHandler('start', start))
     bot_app.add_handler(CommandHandler('set', set_limit_command))  # Corretto
     bot_app.add_handler(CommandHandler('artisti', artisti_command))
     bot_app.add_handler(CommandHandler('votazioni', votazioni_command))
