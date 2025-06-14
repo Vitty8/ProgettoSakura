@@ -973,7 +973,7 @@ async def on_startup(aio_app: web.Application):
             ],
         },
         fallbacks=[CommandHandler('cancel', cancel)],
-        per_message=False,  # Cambiato da True a False per evitare il warning
+        per_message=True,  # Cambiato da True a False per evitare il warning
         per_user=True,
         per_chat=True,
     )
