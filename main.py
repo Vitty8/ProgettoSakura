@@ -993,7 +993,6 @@ async def on_startup(aio_app: web.Application):
     bot_app.add_handler(CommandHandler('logout', logout))
     bot_app.add_handler(CommandHandler('cancel', cancel))
     bot_app.add_handler(conv, group=1)
-    bot_app.add_handler(CallbackQueryHandler(owner_button_handler))
 
     await bot_app.initialize()
     await bot_app.start()
