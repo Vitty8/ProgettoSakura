@@ -1050,7 +1050,6 @@ def main():
     aio_app.router.add_post(WEBHOOK_PATH, telegram_webhook)
     # Telegram a volte verifica il webhook via GET e HEAD: rispondi 200
     aio_app.router.add_get(WEBHOOK_PATH, health)
-    aio_app.router.add_head(WEBHOOK_PATH, health)
 
     logger.info(f"Route POST configurata su: {WEBHOOK_PATH}")
 
