@@ -16,11 +16,24 @@ import firebase_admin
 from firebase_admin import credentials, db
 from typing import Dict, List, Tuple
 
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
-WEBHOOK_URL = os.getenv('WEBHOOK_URL')
 PORT = int(os.getenv('PORT', 8443))
 TOKEN = os.getenv("TOKEN")
+WEBHOOK_URL = os.environ["WEBHOOK_URL"].rstrip("/")
+WEBHOOK_PATH = f"{TOKEN}"
+FULL_WEBHOOK = f"{WEBHOOK_URL}/{WEBHOOK_PATH}"
+
+# Aggiungi debug logging per verificare la configurazione
+logger.info(f"TOKEN: {TOKEN[:10]}...")  # Mostra solo i primi 10 caratteri per sicurezza
+logger.info(f"WEBHOOK_URL: {WEBHOOK_URL}")
+logger.info(f"WEBHOOK_PATH: {WEBHOOK_PATH}")
+logger.info(f"FULL_WEBHOOK: {FULL_WEBHOOK}")
 
 # Cloudinary Configuration
 cloudinary.config(
@@ -62,11 +75,6 @@ firebase_admin.initialize_app(cred, {
     'databaseURL': os.getenv("FIREBASE_DATABASE_URL")
 })
 
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
 
 def get_public_id_from_url(url: str) -> str:
     """Extracts the public_id from a Cloudinary URL."""
@@ -892,78 +900,44 @@ def update_artists_file(artists: dict) -> None:
     except Exception as e:
         print(f"Errore nell'aggiornamento di profili.py: {e}")
 
-async def health_check(request: web.Request) -> web.Response:
+async def telegram_webhook(request: web.Request) -> web.Response:
+    app: Application = request.app["bot_app"]
+    data = await request.json()
+    update = Update.de_json(data, app.bot)
+    await app.process_update(update)
+    return web.Response(status=200)
+
+async def health(request):
     return web.Response(text="OK")
 
+# Modifica la sezione di configurazione del webhook all'inizio del file
+WEBHOOK_URL = os.environ["WEBHOOK_URL"].rstrip("/")
+WEBHOOK_PATH = f"/{TOKEN}"
+FULL_WEBHOOK = f"{WEBHOOK_URL}{WEBHOOK_PATH}"
 
-async def handle_webhook(request: web.Request) -> web.Response:
-    try:
-        data = await request.json()
-    except Exception as e:
-        logger.error(f"Errore nel parse del JSON: {e}")
-        return web.Response(status=400, text="Invalid JSON")
+# Aggiungi debug logging per verificare la configurazione
+logger.info(f"TOKEN: {TOKEN[:10]}...")  # Mostra solo i primi 10 caratteri per sicurezza
+logger.info(f"WEBHOOK_URL: {WEBHOOK_URL}")
+logger.info(f"WEBHOOK_PATH: {WEBHOOK_PATH}")
+logger.info(f"FULL_WEBHOOK: {FULL_WEBHOOK}")
 
-    update = Update.de_json(data, application.bot)
+async def on_startup(aio_app: web.Application):
+    bot_app = Application.builder().token(TOKEN).build()
 
-    asyncio.create_task(application.process_update(update))
-
-    return web.Response(text="OK")
-
-
-async def start_webserver() -> None:
-    load_dotenv()
-    PORT = int(os.getenv('PORT', '8443'))
-
-    webapp = web.Application()
-    webapp.router.add_get('/', health_check)       
-    webapp.router.add_get('/health', health_check)  
-    webapp.router.add_post('/webhook', handle_webhook)
-
-    runner = web.AppRunner(webapp)
-    await runner.setup()
-
-    site = web.TCPSite(runner, '0.0.0.0', PORT)
-    await site.start()
-
-    logger.info(f"Webserver avviato su 0.0.0.0:{PORT}")
-
-
-async def main() -> None:
-    load_dotenv()
-    TOKEN = os.getenv('TOKEN')
-    WEBHOOK_URL = os.getenv('WEBHOOK_URL')  
-
-    if not TOKEN or not WEBHOOK_URL:
-        logger.error("Le variabili d'ambiente TOKEN e WEBHOOK_URL devono essere definite.")
-        return
-
-    # Creazione dell’Application (builder)
-    global application
-    app = Application.builder().token(TOKEN).build()
-
+    # caricare dati bot_data
     data = load_bot_data()
     if data:
-        app.bot_data.update(data)
-    app.bot_data.setdefault("artists", artists)
-    app.bot_data.setdefault("owners_ids", set())
+        bot_app.bot_data.update(data)
+    # esempi di default
+    bot_app.bot_data.setdefault("artists", {})  # Corretto da [] a {}
+    bot_app.bot_data.setdefault("owners_ids", set())
 
-    app.add_handler(CommandHandler('start', start), group=0)
-    app.add_handler(CommandHandler('set', set_limit_command), group=0)
-    app.add_handler(CommandHandler('artisti', artisti_command), group=0)
-    app.add_handler(CommandHandler('votazioni', votazioni_command), group=0)
-    app.add_handler(CommandHandler('reset', reset_voting), group=0)
-    app.add_handler(CommandHandler('logout', logout), group=0)
-    app.add_handler(CommandHandler('cancel', cancel), group=0)
-
+    # ConversationHandler - correggi il warning
     conv = ConversationHandler(
         entry_points=[CommandHandler('start', start)],
         states={
-            PASSWORD: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, check_password),
-            ],
-            VOTE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, vote_handler),
-            ],
+            PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, check_password)],
+            VOTE: [MessageHandler(filters.TEXT & ~filters.COMMAND, vote_handler)],
             MAIN_MENU: [
                 CallbackQueryHandler(owner_button_handler, pattern="^artist[0-9]+$"),
                 CallbackQueryHandler(owner_button_handler, pattern="^stop_voting$"),
@@ -973,7 +947,7 @@ async def main() -> None:
                 CallbackQueryHandler(close_keyboard_callback, pattern="^close_keyboard$")
             ],
             SET_DETAIL: [
-                CallbackQueryHandler(set_detail_callback, pattern="^set_limit_popolare|set_limit_tecnica|set_pass_popolare|set_pass_tecnica|set_pass_owner|back_to_main_menu$")
+                CallbackQueryHandler(set_detail_callback, pattern="^(set_limit_popolare|set_limit_tecnica|set_pass_popolare|set_pass_tecnica|set_pass_owner|back_to_main_menu)$")
             ],
             SET_VALUE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, set_value_handler),
@@ -1006,22 +980,79 @@ async def main() -> None:
             ],
         },
         fallbacks=[CommandHandler('cancel', cancel)],
+        per_message=False,  # Cambiato da True a False per evitare il warning
         per_user=True,
-        per_chat=True
+        per_chat=True,
     )
-    app.add_handler(conv, group=1)
 
-    app.add_handler(CallbackQueryHandler(owner_button_handler), group=0)
+    # registra handler - correggi il comando 'set'
+    bot_app.add_handler(CommandHandler('set', set_limit_command))  # Corretto
+    bot_app.add_handler(CommandHandler('artisti', artisti_command))
+    bot_app.add_handler(CommandHandler('votazioni', votazioni_command))
+    bot_app.add_handler(CommandHandler('reset', reset_voting))
+    bot_app.add_handler(CommandHandler('logout', logout))
+    bot_app.add_handler(CommandHandler('cancel', cancel))
+    bot_app.add_handler(conv, group=1)
+    bot_app.add_handler(CallbackQueryHandler(owner_button_handler))
 
-    await app.initialize()
+    await bot_app.initialize()
+    await bot_app.start()
 
-    await app.bot.set_webhook(WEBHOOK_URL)
-    logger.info(f"Webhook impostato su: {WEBHOOK_URL}")
+    # Imposta il webhook con logging dettagliato
+    try:
+        webhook_info = await bot_app.bot.get_webhook_info()
+        logger.info(f"Webhook info attuale: {webhook_info}")
+        
+        result = await bot_app.bot.set_webhook(FULL_WEBHOOK)
+        logger.info(f"Risultato set_webhook: {result}")
+        
+        # Verifica che il webhook sia stato impostato correttamente
+        new_webhook_info = await bot_app.bot.get_webhook_info()
+        logger.info(f"Nuovo webhook info: {new_webhook_info}")
+        
+    except Exception as e:
+        logger.error(f"Errore nell'impostazione del webhook: {e}")
 
-    await start_webserver()
+    aio_app["bot_app"] = bot_app
+    logger.info("Webhook impostato su: %s", FULL_WEBHOOK)
 
-    await asyncio.Event().wait()
+async def on_cleanup(aio_app: web.Application):
+    bot_app: Application = aio_app["bot_app"]
+    await bot_app.stop()
+    await bot_app.shutdown()
 
 
-if __name__ == '__main__':
-    asyncio.run(main())
+def main():
+    # Verifica che TOKEN sia impostato
+    if not TOKEN:
+        logger.error("TOKEN non impostato nelle variabili d'ambiente!")
+        return
+    
+    # Verifica che WEBHOOK_URL sia impostato
+    webhook_url = os.environ.get("WEBHOOK_URL")
+    if not webhook_url:
+        logger.error("WEBHOOK_URL non impostato nelle variabili d'ambiente!")
+        return
+    
+    logger.info(f"Avvio bot con TOKEN: {TOKEN[:10]}...")
+    logger.info(f"WEBHOOK_URL: {webhook_url}")
+    logger.info(f"WEBHOOK_PATH: {WEBHOOK_PATH}")
+    logger.info(f"FULL_WEBHOOK: {FULL_WEBHOOK}")
+    
+    aio_app = web.Application()
+    aio_app.on_startup.append(on_startup)
+    aio_app.on_cleanup.append(on_cleanup)
+
+    # health-check (opzionale ma utile)
+    aio_app.router.add_get("/", health)
+
+    # monta l'unico POST che serve, su /<TOKEN>
+    aio_app.router.add_post(WEBHOOK_PATH, telegram_webhook)
+    logger.info(f"Route POST configurata su: {WEBHOOK_PATH}")
+
+    port = int(os.environ.get("PORT", 10000))
+    logger.info(f"Avvio server su porta: {port}")
+    web.run_app(aio_app, host="0.0.0.0", port=port)
+
+if __name__ == "__main__":
+    main()
